@@ -1,0 +1,3174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Outbound systems · Rounak Singh</title>
+<meta name="description" content="Implementation work on outbound lead generation systems. Apollo, Smartlead, Instantly, Zoho CRM, deliverability infrastructure, reporting." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+<!-- Boot · confirm JS is alive before any reveal CSS engages.
+     If this never runs, the page remains visible (no .js-on class). -->
+<script>document.documentElement.classList.add('js-on');</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/[email protected]/build/three.module.js"
+  }
+}
+</script>
+
+<style>
+/* ================================================================
+   RESET + BASE
+   ================================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+:root {
+  --paper:        #E5E2D6;
+  --paper-deep:   #D8D3C2;
+  --paper-shade:  #C9C2AD;
+  --ink:          #1A2A33;
+  --ink-soft:     #324048;
+  --ink-faint:    rgba(26, 42, 51, 0.5);
+  --ink-hairline: rgba(26, 42, 51, 0.18);
+  --ink-grid:     rgba(26, 42, 51, 0.07);
+  --teal:         #1F5F6E;
+  --teal-deep:    #154250;
+  --teal-bright:  #3A8E9F;
+  --rust:         #B43E2C;
+  --rust-soft:    #C95A47;
+  --warn:         #C77E2A;
+  --good:         #4A7A4F;
+  --shadow-low:   0 1px 0 rgba(26,42,51,0.04), 0 0 0 1px rgba(26,42,51,0.05);
+  --shadow-mid:   0 8px 24px -16px rgba(26,42,51,0.25), 0 1px 0 rgba(26,42,51,0.05);
+  --shadow-high:  0 24px 60px -24px rgba(26,42,51,0.35), 0 2px 0 rgba(26,42,51,0.06);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Archivo', 'Helvetica Neue', sans-serif;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.55;
+  overflow-x: hidden;
+  position: relative;
+  background-image:
+    linear-gradient(var(--ink-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ink-grid) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: -1px -1px;
+}
+
+/* paper grain overlay */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.55;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.10 0 0 0 0 0.16 0 0 0 0 0.20 0 0 0 0.18 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* warm vignette */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 30%, transparent 50%, rgba(26,42,51,0.12) 100%);
+}
+
+/* 3D canvas */
+#three {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* ================================================================
+   TYPE SYSTEM
+   ================================================================ */
+.mono {
+  font-family: 'IBM Plex Mono', 'JetBrains Mono', monospace;
+  font-feature-settings: "ss01" on, "ss02" on, "calt" on;
+  letter-spacing: -0.01em;
+}
+.narrow {
+  font-family: 'Archivo Narrow', 'Archivo', sans-serif;
+}
+.label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.label--rust { color: var(--rust); }
+.label--teal { color: var(--teal); }
+
+h1, h2, h3, h4 {
+  font-family: 'Archivo', sans-serif;
+  letter-spacing: -0.02em;
+  line-height: 1.04;
+  color: var(--ink);
+}
+
+/* ================================================================
+   LAYOUT
+   ================================================================ */
+.shell {
+  position: relative;
+  z-index: 3;
+}
+
+.container {
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 56px;
+  position: relative;
+}
+
+/* ================================================================
+   TOP NAV
+   ================================================================ */
+.topbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 50;
+  padding: 18px 0;
+  background: linear-gradient(to bottom, rgba(229, 226, 214, 0.92), rgba(229, 226, 214, 0));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  color: var(--ink);
+}
+.topbar__brand-mark {
+  width: 22px; height: 22px;
+  border: 1.5px solid var(--ink);
+  position: relative;
+}
+.topbar__brand-mark::before, .topbar__brand-mark::after {
+  content: "";
+  position: absolute;
+  background: var(--ink);
+}
+.topbar__brand-mark::before { left: 50%; top: 0; bottom: 0; width: 1px; }
+.topbar__brand-mark::after { top: 50%; left: 0; right: 0; height: 1px; }
+
+.topbar__meta {
+  display: flex;
+  gap: 32px;
+  align-items: center;
+}
+.topbar__meta span {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+.topbar__meta .dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+  margin-right: 8px;
+  box-shadow: 0 0 0 3px rgba(74, 122, 79, 0.18);
+  animation: pulse 2.4s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(74, 122, 79, 0.18); }
+  50%      { box-shadow: 0 0 0 5px rgba(74, 122, 79, 0.04); }
+}
+
+/* ================================================================
+   HERO
+   ================================================================ */
+.hero {
+  position: relative;
+  padding: 168px 0 120px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hero__rail {
+  position: absolute;
+  top: 168px;
+  left: 56px;
+  bottom: 120px;
+  width: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.hero__rail .tick {
+  width: 1px;
+  flex: 1;
+  background: var(--ink-hairline);
+  position: relative;
+}
+.hero__rail .tick::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 7px;
+  height: 1px;
+  background: var(--ink-hairline);
+}
+.hero__rail .tick--big::before { left: -6px; width: 13px; background: var(--ink); }
+.hero__rail .ticknum {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  margin-top: 4px;
+}
+
+.hero__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 56px;
+  gap: 48px;
+  padding-left: 76px;
+}
+.hero__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.hero__breadcrumb .num {
+  color: var(--rust);
+  font-weight: 600;
+}
+.hero__breadcrumb .sep { color: var(--ink-faint); }
+
+.hero__doc {
+  text-align: right;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+.hero__doc strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.hero__title-wrap {
+  position: relative;
+  padding-left: 76px;
+}
+
+.hero__title {
+  font-size: clamp(56px, 10.4vw, 156px);
+  line-height: 0.92;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  font-family: 'Archivo', sans-serif;
+  position: relative;
+}
+.hero__title .line {
+  display: block;
+  position: relative;
+}
+.hero__title .stamp {
+  display: inline-block;
+  font-family: 'Archivo Narrow', sans-serif;
+  font-weight: 700;
+  font-style: normal;
+  color: var(--rust);
+  position: relative;
+}
+.hero__title .stamp::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 0.18em;
+  height: 0.42em;
+  background: rgba(180, 62, 44, 0.16);
+  z-index: -1;
+}
+.hero__title .underln {
+  display: inline-block;
+  position: relative;
+  padding: 0 0.04em;
+}
+.hero__title .underln::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  bottom: -0.05em;
+  height: 4px;
+  background: var(--ink);
+}
+
+/* dimension marks around the headline */
+.hero__dim {
+  position: absolute;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+}
+.hero__dim--width {
+  top: -20px;
+  left: 76px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hero__dim--width .arrow {
+  flex: 1;
+  height: 1px;
+  background: var(--ink-hairline);
+  position: relative;
+  min-width: 220px;
+  max-width: 320px;
+}
+.hero__dim--width .arrow::before, .hero__dim--width .arrow::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  width: 1px; height: 7px;
+  background: var(--ink-hairline);
+}
+.hero__dim--width .arrow::before { left: 0; }
+.hero__dim--width .arrow::after  { right: 0; }
+
+/* annotation tag pinned to a word */
+.hero__pin {
+  position: absolute;
+  z-index: 4;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--rust);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hero__pin .note {
+  display: inline-block;
+  background: var(--paper);
+  border: 1px solid var(--rust);
+  padding: 4px 8px;
+  position: relative;
+}
+.hero__pin .note::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 28px;
+  height: 1px;
+  background: var(--rust);
+}
+.hero__pin--right { right: -14px; top: 30%; }
+.hero__pin--right .note::after { right: 100%; }
+
+.hero__sub {
+  display: grid;
+  grid-template-columns: 76px 1fr 1fr;
+  gap: 48px;
+  margin-top: 80px;
+  padding-right: 8%;
+}
+.hero__sub__sidemark {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.hero__sub__sidemark::before {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 1px;
+  background: var(--rust);
+  margin-bottom: 10px;
+}
+.hero__sub__lede {
+  font-family: 'Archivo', sans-serif;
+  font-size: clamp(18px, 1.6vw, 22px);
+  line-height: 1.45;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  font-weight: 500;
+}
+.hero__sub__lede em {
+  font-style: italic;
+  font-family: 'Archivo Narrow', sans-serif;
+  color: var(--rust);
+  font-weight: 600;
+}
+.hero__sub__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  border-left: 1px solid var(--ink-hairline);
+  padding-left: 22px;
+}
+.hero__sub__meta__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+}
+.hero__sub__meta__row .k {
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.hero__sub__meta__row .v {
+  color: var(--ink);
+  font-weight: 500;
+}
+.hero__sub__meta__row .v.rust { color: var(--rust); }
+
+/* small svg schematic in the hero */
+.hero__schema {
+  margin-top: 72px;
+  margin-left: 76px;
+  width: calc(100% - 76px);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.hero__schema svg {
+  flex: 1;
+  max-width: 920px;
+  height: auto;
+  display: block;
+}
+.hero__schema__caption {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  border-left: 1px solid var(--ink-hairline);
+  padding: 8px 0 8px 18px;
+  line-height: 1.7;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+.hero__schema__caption strong { display: block; color: var(--ink); }
+
+/* ================================================================
+   SECTION CHROME
+   ================================================================ */
+.section {
+  position: relative;
+  padding: 136px 0;
+}
+.section__hd {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 56px;
+  align-items: end;
+  margin-bottom: 64px;
+  border-top: 1px solid var(--ink);
+  padding-top: 28px;
+}
+.section__num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--rust);
+  text-transform: uppercase;
+}
+.section__num strong {
+  color: var(--ink);
+  margin-right: 14px;
+}
+.section__title {
+  font-size: clamp(40px, 5.8vw, 78px);
+  line-height: 0.96;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+}
+.section__title .softer {
+  color: var(--ink-soft);
+  font-style: italic;
+  font-family: 'Archivo Narrow', sans-serif;
+  font-weight: 600;
+}
+.section__title .acc {
+  color: var(--rust);
+}
+
+.section__lede {
+  font-size: clamp(17px, 1.4vw, 19px);
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  color: var(--ink-soft);
+  max-width: 64ch;
+  margin-left: auto;
+}
+
+/* ================================================================
+   INFRASTRUCTURE / DNS INSPECTOR
+   ================================================================ */
+.dns {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  position: relative;
+  box-shadow: var(--shadow-mid);
+}
+/* corner ticks for that schematic feel */
+.dns::before, .dns::after,
+.dns__body::before, .dns__body::after {
+  content: "";
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+}
+.dns::before { top: -7px; left: -7px; border-right: none; border-bottom: none; }
+.dns::after  { top: -7px; right: -7px; border-left: none; border-bottom: none; }
+.dns__body::before { bottom: -7px; left: -7px; border-right: none; border-top: none; }
+.dns__body::after  { bottom: -7px; right: -7px; border-left: none; border-top: none; }
+
+.dns__tabs {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--ink-hairline);
+  background: var(--paper-deep);
+}
+.dns__tabs__hd {
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--ink-hairline);
+}
+.dns__tabs__hd .label { color: var(--ink); }
+.dns__tabs__hd h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 6px;
+  letter-spacing: -0.01em;
+}
+.dns__tabs__hd p {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.dns__tab {
+  display: grid;
+  grid-template-columns: 28px 1fr 18px;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--ink-hairline);
+  padding: 16px 24px;
+  text-align: left;
+  cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  transition: background 0.16s ease, color 0.16s ease;
+  position: relative;
+}
+.dns__tab__num {
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+}
+.dns__tab__name {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.dns__tab__name b { color: var(--ink); font-weight: 600; }
+.dns__tab__name span { display: block; font-size: 10px; color: var(--ink-faint); margin-top: 2px; letter-spacing: 0.06em; text-transform: uppercase; }
+.dns__tab__chev {
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--ink-faint);
+  font-size: 14px;
+}
+.dns__tab:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+.dns__tab.is-active {
+  background: var(--paper);
+  color: var(--ink);
+}
+.dns__tab.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--rust);
+}
+.dns__tab.is-active .dns__tab__num { color: var(--rust); }
+
+.dns__body {
+  padding: 32px 36px 36px;
+  background: var(--paper);
+  position: relative;
+  min-height: 520px;
+}
+
+.dns__panel { display: none; }
+.dns__panel.is-active { display: block; animation: fadein 0.25s ease; }
+@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.dns__panel__hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--ink-hairline);
+  padding-bottom: 16px;
+  margin-bottom: 22px;
+  gap: 24px;
+}
+.dns__panel__title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.dns__panel__title .fn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--rust);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: block;
+  margin-top: 4px;
+}
+.dns__panel__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--good);
+}
+.dns__panel__status .led {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(74, 122, 79, 0.15);
+}
+
+.dns__rec {
+  background: var(--ink);
+  color: #DDE5DF;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  padding: 22px 24px;
+  position: relative;
+  margin-bottom: 22px;
+  word-break: break-all;
+  overflow-x: auto;
+  border: 1px solid var(--ink);
+}
+.dns__rec::before {
+  content: "TXT/CNAME · zone file fragment";
+  position: absolute;
+  top: -10px;
+  left: 14px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  padding: 0 10px;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.dns__rec .k { color: #87C7B7; }
+.dns__rec .v { color: #DDE5DF; }
+.dns__rec .c { color: #C49A6C; }
+.dns__rec .x { color: #E37961; }
+.dns__rec .selected { background: rgba(228, 121, 97, 0.18); padding: 0 2px; }
+.dns__rec .ln {
+  display: block;
+  white-space: nowrap;
+  position: relative;
+  padding-left: 30px;
+}
+.dns__rec .ln::before {
+  content: attr(data-ln);
+  position: absolute;
+  left: 0;
+  color: rgba(221, 229, 223, 0.32);
+  font-size: 11px;
+  width: 22px;
+  text-align: right;
+}
+
+.dns__notes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--ink-hairline);
+  border-left: 1px solid var(--ink-hairline);
+}
+.dns__note {
+  padding: 18px 22px;
+  border-right: 1px solid var(--ink-hairline);
+  border-bottom: 1px solid var(--ink-hairline);
+}
+.dns__note__num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--rust);
+  letter-spacing: 0.12em;
+  margin-bottom: 8px;
+}
+.dns__note__h {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: -0.005em;
+}
+.dns__note__b {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.dns__warmup {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 28px;
+  align-items: stretch;
+}
+.dns__warmup__txt {
+  padding-right: 16px;
+}
+.dns__warmup__txt h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.dns__warmup__txt p {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+
+.dns__warmchart {
+  position: relative;
+  background: var(--paper-deep);
+  border: 1px solid var(--ink-hairline);
+  padding: 18px 20px;
+}
+.dns__warmchart__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.dns__warmchart__title b { color: var(--ink); }
+.dns__warmchart svg { width: 100%; height: auto; display: block; }
+
+/* ================================================================
+   ENGINE / PIPELINE VISUALIZER
+   ================================================================ */
+.engine {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 64px;
+}
+.pipeline {
+  position: relative;
+  padding: 56px 36px 48px;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: var(--shadow-mid);
+  overflow: hidden;
+}
+.pipeline::before {
+  content: "FIG. 02 · LEAD ENGINE FLOW · TAM → MEETING";
+  position: absolute;
+  top: -10px; left: 24px;
+  background: var(--paper);
+  padding: 0 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+}
+.pipeline__stages {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  position: relative;
+}
+.pipeline__stages::before {
+  content: "";
+  position: absolute;
+  top: 60px; left: 6%; right: 6%;
+  height: 2px;
+  background: var(--ink-hairline);
+  background-image: repeating-linear-gradient(to right, var(--ink) 0 6px, transparent 6px 12px);
+  z-index: 0;
+}
+.stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 8px;
+}
+.stage__hex {
+  width: 72px; height: 72px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  display: grid;
+  place-items: center;
+  position: relative;
+  font-family: 'Archivo', sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.stage__hex::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border: 1px dashed var(--ink-hairline);
+  pointer-events: none;
+}
+.stage:nth-child(odd) .stage__hex { background: var(--paper-deep); }
+.stage--last .stage__hex { background: var(--rust); color: var(--paper); border-color: var(--rust); }
+
+.stage__lbl {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 18px;
+  color: var(--ink);
+  text-align: center;
+}
+.stage__num {
+  font-family: 'Archivo', sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: -0.025em;
+  margin-top: 8px;
+  color: var(--ink);
+}
+.stage__num .pct {
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--ink-faint);
+  font-weight: 500;
+  margin-left: 4px;
+  letter-spacing: 0.04em;
+}
+.stage__sub {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.pipeline__floor {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--ink-hairline);
+  margin-top: 36px;
+  padding-top: 18px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+.pipeline__floor strong { color: var(--ink); }
+.pipeline__floor .accent { color: var(--rust); }
+
+/* ================================================================
+   SEQUENCE STEPPER
+   ================================================================ */
+.seq-wrap {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  position: relative;
+  box-shadow: var(--shadow-mid);
+  overflow: hidden;
+}
+
+.seq__rail {
+  background: var(--paper-deep);
+  border-right: 1px solid var(--ink-hairline);
+  padding: 26px 0 26px;
+}
+.seq__rail__hd {
+  padding: 0 28px 18px;
+  border-bottom: 1px solid var(--ink-hairline);
+}
+.seq__rail__hd h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 8px;
+  letter-spacing: -0.01em;
+}
+.seq__rail__hd p {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.seq__step {
+  display: grid;
+  grid-template-columns: 22px 36px 1fr 14px;
+  gap: 0;
+  align-items: flex-start;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 16px 28px 16px 22px;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid var(--ink-hairline);
+  position: relative;
+  transition: background 0.16s ease;
+}
+.seq__step:hover { background: var(--paper); }
+.seq__step.is-active { background: var(--paper); }
+.seq__step.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--rust);
+}
+
+.seq__step__line {
+  position: relative;
+  width: 22px;
+  align-self: stretch;
+}
+.seq__step__line::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: -16px;
+  bottom: -17px;
+  width: 1px;
+  background: var(--ink-hairline);
+}
+.seq__step:first-of-type .seq__step__line::before { top: 8px; }
+.seq__step:last-of-type .seq__step__line::before { bottom: 50%; }
+.seq__step__line .dot {
+  position: absolute;
+  top: 8px;
+  left: 7px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  z-index: 1;
+}
+.seq__step.is-active .seq__step__line .dot {
+  background: var(--rust);
+  border-color: var(--rust);
+}
+
+.seq__step__num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  margin-top: 5px;
+}
+.seq__step.is-active .seq__step__num { color: var(--rust); }
+
+.seq__step__body { padding-right: 8px; }
+.seq__step__when {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--ink-soft);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.seq__step__subj {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  margin-bottom: 3px;
+  line-height: 1.35;
+}
+.seq__step__hint {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+.seq__step__chev {
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--ink-faint);
+  font-size: 14px;
+  align-self: center;
+}
+
+/* email render area */
+.seq__email {
+  padding: 36px 36px 36px;
+  background: var(--paper);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.seq__email__chrome {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--ink-hairline);
+  padding-bottom: 14px;
+  margin-bottom: 22px;
+  gap: 16px;
+}
+.seq__email__client {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.seq__email__client__dots {
+  display: flex; gap: 6px;
+}
+.seq__email__client__dots span {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-hairline);
+}
+.seq__email__meta {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  text-align: right;
+  line-height: 1.5;
+}
+.seq__email__meta b { color: var(--ink); display: block; }
+
+.seq__email__head {
+  margin-bottom: 22px;
+}
+.seq__email__from {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.seq__email__avatar {
+  width: 38px; height: 38px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: 'Archivo', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+.seq__email__from__txt h5 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.seq__email__from__txt span {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.seq__email__subj {
+  font-family: 'Archivo', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.seq__email__pre {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+  font-style: italic;
+}
+.seq__email__body {
+  font-family: 'Archivo', sans-serif;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--ink);
+  flex: 1;
+}
+.seq__email__body p { margin-bottom: 14px; }
+.seq__email__body .hl {
+  background: rgba(180, 62, 44, 0.12);
+  padding: 0 3px;
+  border-bottom: 1px dashed var(--rust);
+}
+.seq__email__sig {
+  margin-top: 18px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.seq__email__sig span {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  letter-spacing: 0.06em;
+  margin-top: 4px;
+}
+
+.seq__email__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--ink-hairline);
+  margin-top: 24px;
+  padding-top: 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.seq__email__foot .stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.seq__email__foot .stat b { color: var(--ink); font-weight: 600; }
+.seq__email__foot .stat .led {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+}
+
+/* ================================================================
+   CRM / KANBAN + SCHEMA
+   ================================================================ */
+.crm {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 32px;
+}
+.crm__board {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  padding: 24px 26px 26px;
+  position: relative;
+  box-shadow: var(--shadow-mid);
+}
+.crm__board__hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--ink-hairline);
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+.crm__board__hd h4 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.crm__board__hd .filter {
+  display: flex;
+  gap: 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.crm__board__hd .filter span.on { color: var(--rust); position: relative; }
+.crm__board__hd .filter span.on::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -4px;
+  height: 1px; background: var(--rust);
+}
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.col__hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 6px;
+  border-bottom: 1.5px solid var(--ink);
+  margin-bottom: 8px;
+}
+.col__hd .name {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  font-weight: 600;
+}
+.col__hd .count {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+.col__hd--rust { border-bottom-color: var(--rust); }
+.col__hd--rust .name { color: var(--rust); }
+.col__hd--good { border-bottom-color: var(--good); }
+.col__hd--warn { border-bottom-color: var(--warn); }
+
+.card {
+  background: var(--paper-deep);
+  border: 1px solid var(--ink-hairline);
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  cursor: default;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -10px rgba(26,42,51,0.35);
+  border-color: var(--ink);
+}
+.card__name {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.card__role {
+  font-size: 10px;
+  color: var(--ink-soft);
+  margin-top: 1px;
+}
+.card__co {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 5px;
+}
+.card__tag {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  margin-top: 6px;
+  border: 1px solid var(--ink-hairline);
+  color: var(--ink-soft);
+}
+.card__tag--hot { color: var(--rust); border-color: var(--rust); }
+.card__tag--good { color: var(--good); border-color: var(--good); }
+.card__tag--warn { color: var(--warn); border-color: var(--warn); }
+.card--rust { border-left: 2px solid var(--rust); }
+.card--good { border-left: 2px solid var(--good); }
+.card--warn { border-left: 2px solid var(--warn); }
+
+.crm__schema {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  padding: 24px 26px 26px;
+  position: relative;
+  box-shadow: var(--shadow-mid);
+}
+.crm__schema__hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--ink-hairline);
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+}
+.crm__schema__hd h4 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.crm__schema__hd .label {
+  color: var(--rust);
+}
+.field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--ink-hairline);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+}
+.field:last-child { border-bottom: none; }
+.field__name {
+  color: var(--ink);
+  font-weight: 500;
+}
+.field__name b { color: var(--rust); margin-right: 6px; font-weight: 500; }
+.field__name span {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.field__type {
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  background: var(--paper-deep);
+  padding: 3px 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--ink-hairline);
+}
+
+.crm__rules {
+  margin-top: 16px;
+  padding: 14px 14px 12px;
+  background: var(--ink);
+  color: var(--paper);
+  position: relative;
+}
+.crm__rules::before {
+  content: "WORKFLOW · BLUEPRINT ON CREATE";
+  position: absolute;
+  top: -9px; left: 12px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  padding: 0 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+.crm__rules ol {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  counter-reset: rules;
+}
+.crm__rules li {
+  counter-increment: rules;
+  position: relative;
+  padding: 4px 0 4px 28px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+}
+.crm__rules li::before {
+  content: counter(rules, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  color: var(--rust-soft);
+  font-weight: 600;
+}
+.crm__rules li b { color: #87C7B7; }
+
+/* ================================================================
+   REPORTING / INSTRUMENT CLUSTER
+   ================================================================ */
+.report {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  position: relative;
+  box-shadow: var(--shadow-mid);
+}
+.report::before {
+  content: "FIG. 03 · WEEKLY DASHBOARD · ZOHO ANALYTICS / LOOKER STUDIO";
+  position: absolute;
+  top: -10px; left: 24px;
+  background: var(--paper);
+  padding: 0 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+}
+.kpi {
+  padding: 24px 22px 20px;
+  border-right: 1px solid var(--ink-hairline);
+  border-bottom: 1px solid var(--ink-hairline);
+  position: relative;
+  background: var(--paper);
+}
+.kpi:nth-child(6n) { border-right: none; }
+.kpi:nth-last-child(-n+6) { border-bottom: none; }
+.kpi:nth-child(2n) { background: var(--paper-deep); }
+.kpi__lbl {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 12px;
+}
+.kpi__val {
+  font-family: 'Archivo', sans-serif;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  line-height: 1;
+}
+.kpi__val .small {
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-left: 2px;
+}
+.kpi__delta {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+}
+.kpi__delta.up { color: var(--good); }
+.kpi__delta.dn { color: var(--rust); }
+.kpi__spark {
+  margin-top: 12px;
+  height: 28px;
+}
+.kpi__spark svg { width: 100%; height: 100%; display: block; }
+
+/* ================================================================
+   CTA
+   ================================================================ */
+.cta {
+  position: relative;
+  padding: 132px 0 144px;
+  background: var(--ink);
+  color: var(--paper);
+  margin-top: 88px;
+}
+.cta::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(229, 226, 214, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(229, 226, 214, 0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
+  pointer-events: none;
+}
+.cta__inner {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 64px;
+  align-items: end;
+  position: relative;
+}
+.cta__h {
+  font-size: clamp(44px, 6vw, 84px);
+  line-height: 0.96;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  color: var(--paper);
+}
+.cta__h .acc { color: var(--rust-soft); font-style: italic; font-family: 'Archivo Narrow', sans-serif; font-weight: 700; }
+.cta__h .ul { display: inline-block; border-bottom: 4px solid var(--rust-soft); padding-bottom: 6px; }
+.cta__sub {
+  font-size: 16px;
+  line-height: 1.55;
+  color: rgba(229, 226, 214, 0.72);
+  margin-top: 24px;
+  max-width: 50ch;
+}
+
+.cta__contact {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  border-left: 1px solid rgba(229, 226, 214, 0.18);
+  padding-left: 28px;
+}
+.cta__row {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+}
+.cta__row .k {
+  display: block;
+  color: rgba(229, 226, 214, 0.5);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  margin-bottom: 4px;
+}
+.cta__row .v {
+  color: var(--paper);
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(229, 226, 214, 0.35);
+  padding-bottom: 1px;
+}
+.cta__row .v:hover { border-bottom-color: var(--rust-soft); color: var(--rust-soft); }
+
+/* ================================================================
+   FOOTER
+   ================================================================ */
+.footer {
+  position: relative;
+  z-index: 3;
+  padding: 26px 0;
+  background: var(--paper-shade);
+  border-top: 1px solid var(--ink);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+.footer__inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer .num { color: var(--rust); }
+
+/* ================================================================
+   CUSTOM CURSOR
+   ================================================================ */
+@media (hover: hover) {
+  body { cursor: none; }
+  a, button, .seq__step, .dns__tab, .card { cursor: none; }
+  .cursor {
+    position: fixed;
+    top: 0; left: 0;
+    width: 22px; height: 22px;
+    margin: -11px 0 0 -11px;
+    pointer-events: none;
+    z-index: 1000;
+    mix-blend-mode: difference;
+    transition: transform 0.18s ease, width 0.18s ease, height 0.18s ease;
+  }
+  .cursor::before, .cursor::after {
+    content: "";
+    position: absolute;
+    background: #cccccc;
+  }
+  .cursor::before { top: 0; bottom: 0; left: 50%; width: 1px; margin-left: -0.5px; }
+  .cursor::after  { left: 0; right: 0; top: 50%; height: 1px; margin-top: -0.5px; }
+  .cursor__dot {
+    position: absolute;
+    inset: 8px;
+    border: 1px solid #cccccc;
+    border-radius: 50%;
+  }
+  .cursor.is-hover { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+  .cursor.is-hover::before, .cursor.is-hover::after { display: none; }
+  .cursor.is-hover .cursor__dot { inset: 0; }
+}
+@media (hover: none) { .cursor { display: none; } }
+
+/* ================================================================
+   REVEAL ON SCROLL
+   Default: visible. Only hidden when the no-fail boot script confirms
+   JS is alive (.js-on on <html>). That way, a failed Three.js import
+   or a slow CDN never leaves the page blank.
+   ================================================================ */
+.reveal {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition-delay: var(--d, 0s);
+}
+.js-on .reveal:not(.is-in) {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.js-on .reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* ================================================================
+   MOBILE
+   ================================================================ */
+@media (max-width: 1024px) {
+  .container { padding: 0 32px; }
+  .hero__head { flex-direction: column; align-items: flex-start; }
+  .hero__sub { grid-template-columns: 24px 1fr; padding-right: 0; }
+  .hero__sub__meta { grid-column: 2; }
+  .hero__title-wrap { padding-left: 36px; }
+  .hero__head { padding-left: 36px; }
+  .hero__rail { left: 32px; }
+  .crm { grid-template-columns: 1fr; }
+  .dns { grid-template-columns: 1fr; }
+  .dns__tabs { border-right: none; border-bottom: 1px solid var(--ink-hairline); flex-direction: row; overflow-x: auto; }
+  .dns__tabs__hd { display: none; }
+  .dns__tab { min-width: 200px; border-bottom: none; border-right: 1px solid var(--ink-hairline); }
+  .dns__tab.is-active::before { left: 0; right: 0; top: auto; bottom: 0; height: 3px; width: auto; }
+  .seq-wrap { grid-template-columns: 1fr; }
+  .pipeline__stages { grid-template-columns: 1fr 1fr; row-gap: 28px; }
+  .pipeline__stages::before { display: none; }
+  .report { grid-template-columns: repeat(2, 1fr); }
+  .kpi:nth-child(6n) { border-right: 1px solid var(--ink-hairline); }
+  .kpi:nth-child(2n) { border-right: none; }
+  .kpi:nth-last-child(-n+6) { border-bottom: 1px solid var(--ink-hairline); }
+  .kpi:nth-last-child(-n+2) { border-bottom: none; }
+}
+@media (max-width: 720px) {
+  .container { padding: 0 22px; }
+  .topbar__meta span:not(:last-child) { display: none; }
+  .hero { padding: 132px 0 80px; }
+  .hero__rail { display: none; }
+  .hero__head { padding-left: 0; }
+  .hero__title-wrap { padding-left: 0; }
+  .hero__sub { grid-template-columns: 1fr; gap: 28px; }
+  .hero__sub__meta { grid-column: 1; border-left: none; padding-left: 0; border-top: 1px solid var(--ink-hairline); padding-top: 22px; }
+  .hero__schema { margin-left: 0; flex-direction: column; align-items: flex-start; }
+  .hero__schema__caption { border-left: none; border-top: 1px solid var(--ink-hairline); padding: 18px 0 0; align-self: flex-start; }
+  .section { padding: 88px 0; }
+  .section__hd { grid-template-columns: 1fr; gap: 24px; }
+  .section__lede { margin-left: 0; }
+  .crm__board { padding: 16px 16px 18px; }
+  .kanban { grid-template-columns: repeat(2, minmax(160px, 1fr)); overflow-x: auto; }
+  .pipeline { padding: 40px 18px 28px; }
+  .pipeline__stages { grid-template-columns: 1fr 1fr; }
+  .seq__rail { padding: 16px 0; }
+  .seq__rail__hd { padding: 0 18px 14px; }
+  .seq__step { padding: 14px 18px 14px 14px; grid-template-columns: 18px 32px 1fr 12px; }
+  .seq__email { padding: 22px 22px 22px; }
+  .dns__body { padding: 22px 20px 24px; min-height: 0; }
+  .dns__notes { grid-template-columns: 1fr; }
+  .dns__warmup { grid-template-columns: 1fr; }
+  .cta { padding: 88px 0 96px; }
+  .cta__inner { grid-template-columns: 1fr; gap: 36px; align-items: stretch; }
+  .cta__contact { border-left: none; border-top: 1px solid rgba(229, 226, 214, 0.18); padding: 28px 0 0; }
+}
+@media (max-width: 580px) {
+  .hero__doc { display: none; }
+  .hero__pin { display: none; }
+  .pipeline__stages { grid-template-columns: 1fr; }
+  .report { grid-template-columns: 1fr; }
+  .kpi:nth-last-child(-n+6) { border-bottom: 1px solid var(--ink-hairline); }
+  .kpi:last-child { border-bottom: none; }
+  .crm__board__hd { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .crm__board__hd .filter { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="three"></canvas>
+<div class="grain"></div>
+<div class="cursor"><span class="cursor__dot"></span></div>
+
+<div class="shell">
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="container topbar__inner">
+    <div class="topbar__brand">
+      <span class="topbar__brand-mark"></span>
+      <span>R. SINGH&nbsp;&nbsp;·&nbsp;&nbsp;OUTBOUND SYS.</span>
+    </div>
+    <div class="topbar__meta">
+      <span><span class="dot"></span>AVAILABLE · NEW PROJECTS</span>
+      <span>UTC+5:30 · NEW DELHI</span>
+      <span>WORK SAMPLE · 02 / N</span>
+    </div>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <!-- left rail with ticks -->
+    <div class="hero__rail">
+      <div class="tick tick--big"></div>
+      <span class="ticknum">SHEET 02</span>
+      <div class="tick"></div>
+    </div>
+
+    <div class="hero__head">
+      <div class="hero__breadcrumb reveal">
+        <span class="num">02</span>
+        <span class="sep">/</span>
+        <span>OUTBOUND IMPLEMENTATION</span>
+        <span class="sep">/</span>
+        <span>APOLLO · SMARTLEAD · ZOHO</span>
+      </div>
+      <div class="hero__doc reveal" style="--d:0.06s">
+        <div>SHEET <strong>02 OF 14</strong></div>
+        <div>REV <strong>2026.05</strong></div>
+        <div>DRAWN BY <strong>R.S.</strong></div>
+      </div>
+    </div>
+
+    <div class="hero__title-wrap">
+      <div class="hero__dim hero__dim--width reveal" style="--d:0.10s">
+        <span>A</span>
+        <span class="arrow"></span>
+        <span>B</span>
+      </div>
+
+      <h1 class="hero__title">
+        <span class="line reveal" style="--d:0.14s">Outbound is</span>
+        <span class="line reveal" style="--d:0.22s">three&nbsp;<span class="stamp">layers</span></span>
+        <span class="line reveal" style="--d:0.30s">stacked.&nbsp;Get</span>
+        <span class="line reveal" style="--d:0.38s">any one wrong</span>
+        <span class="line reveal" style="--d:0.46s">and the&nbsp;<span class="underln">whole&nbsp;thing&nbsp;leaks.</span></span>
+      </h1>
+
+      <div class="hero__pin hero__pin--right reveal" style="--d:0.55s">
+        <span class="note">A · DELIVERABILITY</span>
+      </div>
+    </div>
+
+    <div class="hero__sub">
+      <div class="hero__sub__sidemark reveal" style="--d:0.55s">
+        Detail<br/>view A
+      </div>
+      <p class="hero__sub__lede reveal" style="--d:0.6s">
+        An inbox that survives a 12-week burn. A CRM that doesn't drop replies on the floor. A sequence that <em>knows when to stop</em>. I build the three layers to fit the same business, then I document them so the next person doesn't have to reverse-engineer the setup at 11 pm on a Tuesday.
+      </p>
+      <div class="hero__sub__meta reveal" style="--d:0.7s">
+        <div class="hero__sub__meta__row">
+          <span class="k">STACK</span>
+          <span class="v">APOLLO · SMARTLEAD · ZOHO</span>
+        </div>
+        <div class="hero__sub__meta__row">
+          <span class="k">DOMAINS WARMED</span>
+          <span class="v">23 · 12 wk avg</span>
+        </div>
+        <div class="hero__sub__meta__row">
+          <span class="k">TYPICAL BOUNCE</span>
+          <span class="v rust">&lt; 1.4 %</span>
+        </div>
+        <div class="hero__sub__meta__row">
+          <span class="k">TURNAROUND</span>
+          <span class="v">10 to 14 days</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- hero schematic strip -->
+    <div class="hero__schema reveal" style="--d:0.85s">
+      <svg viewBox="0 0 920 96" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- grid lines -->
+        <g stroke="rgba(26,42,51,0.10)" stroke-width="0.5">
+          <line x1="0" y1="48" x2="920" y2="48"/>
+          <line x1="0" y1="24" x2="920" y2="24" stroke-dasharray="2 4"/>
+          <line x1="0" y1="72" x2="920" y2="72" stroke-dasharray="2 4"/>
+        </g>
+        <!-- nodes -->
+        <g font-family="IBM Plex Mono, monospace" font-size="9" fill="#324048" letter-spacing="0.06em" text-anchor="middle">
+          <!-- 1 Apollo -->
+          <rect x="20" y="34" width="120" height="28" stroke="#1A2A33" stroke-width="1.2" fill="#E5E2D6"/>
+          <text x="80" y="51">APOLLO · ICP FILTER</text>
+          <text x="80" y="80" fill="#B43E2C" font-weight="600">[01]</text>
+          <!-- arrow -->
+          <line x1="142" y1="48" x2="186" y2="48" stroke="#B43E2C" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <polygon points="186,48 180,45 180,51" fill="#B43E2C"/>
+          <!-- 2 Enrich -->
+          <rect x="190" y="34" width="120" height="28" stroke="#1A2A33" stroke-width="1.2" fill="#E5E2D6"/>
+          <text x="250" y="51">CLAY · ENRICH</text>
+          <text x="250" y="80" fill="#B43E2C" font-weight="600">[02]</text>
+          <line x1="312" y1="48" x2="356" y2="48" stroke="#B43E2C" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <polygon points="356,48 350,45 350,51" fill="#B43E2C"/>
+          <!-- 3 Verify -->
+          <rect x="360" y="34" width="120" height="28" stroke="#1A2A33" stroke-width="1.2" fill="#D8D3C2"/>
+          <text x="420" y="51">NEVERBOUNCE</text>
+          <text x="420" y="80" fill="#B43E2C" font-weight="600">[03]</text>
+          <line x1="482" y1="48" x2="526" y2="48" stroke="#B43E2C" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <polygon points="526,48 520,45 520,51" fill="#B43E2C"/>
+          <!-- 4 Sequencer -->
+          <rect x="530" y="34" width="120" height="28" stroke="#1A2A33" stroke-width="1.2" fill="#E5E2D6"/>
+          <text x="590" y="51">SMARTLEAD SEQ.</text>
+          <text x="590" y="80" fill="#B43E2C" font-weight="600">[04]</text>
+          <line x1="652" y1="48" x2="696" y2="48" stroke="#B43E2C" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <polygon points="696,48 690,45 690,51" fill="#B43E2C"/>
+          <!-- 5 Zoho -->
+          <rect x="700" y="34" width="120" height="28" stroke="#1A2A33" stroke-width="1.2" fill="#E5E2D6"/>
+          <text x="760" y="51">ZOHO · CRM</text>
+          <text x="760" y="80" fill="#B43E2C" font-weight="600">[05]</text>
+          <!-- branch to reports -->
+          <line x1="822" y1="48" x2="900" y2="48" stroke="#1A2A33" stroke-width="0.8"/>
+          <line x1="900" y1="24" x2="900" y2="72" stroke="#1A2A33" stroke-width="0.8"/>
+          <text x="900" y="18" fill="#1F5F6E">REPORTS</text>
+          <text x="900" y="86" fill="#1F5F6E">SLACK</text>
+        </g>
+        <!-- corner crops -->
+        <g stroke="#1A2A33" stroke-width="1">
+          <path d="M0 0 L8 0 M0 0 L0 8"/>
+          <path d="M920 0 L912 0 M920 0 L920 8"/>
+          <path d="M0 96 L8 96 M0 96 L0 88"/>
+          <path d="M920 96 L912 96 M920 96 L920 88"/>
+        </g>
+      </svg>
+      <div class="hero__schema__caption">
+        FIG. 01<br/><strong>SYSTEM OVERVIEW</strong><br/>FIVE COUPLED LAYERS<br/>ZERO MANUAL HOPS
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 01 · INFRASTRUCTURE -->
+<section class="section" id="infra">
+  <div class="container">
+    <header class="section__hd">
+      <div class="reveal">
+        <div class="section__num"><strong>§ 01</strong>INFRASTRUCTURE · DELIVERABILITY</div>
+      </div>
+      <div class="reveal" style="--d:0.08s">
+        <h2 class="section__title">The work that <span class="acc">happens</span> before <span class="softer">any</span> campaign sends.</h2>
+      </div>
+    </header>
+
+    <p class="section__lede reveal">
+      Most agencies will sell you a sequence and a SaaS bill. The actual work happens upstream. SPF that resolves cleanly inside the 10-lookup limit. DKIM that signs every message your sequencer sends. DMARC set to monitor first, then quarantine when you've earned it. A custom tracking domain so opens don't poison your root. None of it is hard. Almost no one ships it correctly the first time.
+    </p>
+
+    <div class="dns reveal" style="--d:0.12s; margin-top: 64px;">
+      <!-- TABS -->
+      <nav class="dns__tabs" id="dnsTabs">
+        <div class="dns__tabs__hd">
+          <div class="label">DNS · ZONE FILE</div>
+          <h3>Authentication setup</h3>
+          <p>Click a record to inspect. Every domain ships with all four authenticated and a tracking CNAME parked.</p>
+        </div>
+        <button class="dns__tab is-active" data-tab="spf">
+          <span class="dns__tab__num">01</span>
+          <span class="dns__tab__name"><b>SPF</b><span>Sender policy</span></span>
+          <span class="dns__tab__chev">›</span>
+        </button>
+        <button class="dns__tab" data-tab="dkim">
+          <span class="dns__tab__num">02</span>
+          <span class="dns__tab__name"><b>DKIM</b><span>Signing key</span></span>
+          <span class="dns__tab__chev">›</span>
+        </button>
+        <button class="dns__tab" data-tab="dmarc">
+          <span class="dns__tab__num">03</span>
+          <span class="dns__tab__name"><b>DMARC</b><span>Reporting policy</span></span>
+          <span class="dns__tab__chev">›</span>
+        </button>
+        <button class="dns__tab" data-tab="track">
+          <span class="dns__tab__num">04</span>
+          <span class="dns__tab__name"><b>Tracking</b><span>Custom CNAME</span></span>
+          <span class="dns__tab__chev">›</span>
+        </button>
+        <button class="dns__tab" data-tab="warm">
+          <span class="dns__tab__num">05</span>
+          <span class="dns__tab__name"><b>Warm-up</b><span>12-week burn</span></span>
+          <span class="dns__tab__chev">›</span>
+        </button>
+      </nav>
+
+      <!-- BODY -->
+      <div class="dns__body" id="dnsBody">
+
+        <!-- SPF -->
+        <div class="dns__panel is-active" data-panel="spf">
+          <div class="dns__panel__hd">
+            <div class="dns__panel__title">
+              SPF · sender policy framework
+              <span class="fn">@ root · TXT</span>
+            </div>
+            <div class="dns__panel__status"><span class="led"></span>resolves · 6 lookups</div>
+          </div>
+          <div class="dns__rec">
+            <span class="ln" data-ln="01"><span class="c">; v=spf1 record · root domain</span></span>
+            <span class="ln" data-ln="02"><span class="k">@</span>  <span class="k">3600 IN TXT</span>  <span class="v">"v=spf1</span></span>
+            <span class="ln" data-ln="03"><span class="v">  include:_spf.google.com</span></span>
+            <span class="ln" data-ln="04"><span class="v">  include:smartlead.amazonses.com</span></span>
+            <span class="ln" data-ln="05"><span class="v">  include:_spf.smartlead.ai</span></span>
+            <span class="ln" data-ln="06"><span class="v">  include:</span><span class="selected">spf.zoho.in</span></span>
+            <span class="ln" data-ln="07"><span class="v">  </span><span class="x">~all"</span></span>
+          </div>
+          <div class="dns__notes">
+            <div class="dns__note">
+              <div class="dns__note__num">N · 01</div>
+              <div class="dns__note__h">10-lookup ceiling.</div>
+              <div class="dns__note__b">SPF fails silently past ten DNS lookups. I flatten with a tool when needed and keep room for a future include.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 02</div>
+              <div class="dns__note__h">~all, not -all.</div>
+              <div class="dns__note__b">Soft-fail during warm-up so a misconfigured include doesn't bin every legit message. Tighten to -all only after DMARC alignment is clean for two weeks.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 03</div>
+              <div class="dns__note__h">Sub-domain isolation.</div>
+              <div class="dns__note__b">Outbound runs on a dedicated send domain (mail.* or hi.*) so cold-email reputation never touches transactional traffic.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DKIM -->
+        <div class="dns__panel" data-panel="dkim">
+          <div class="dns__panel__hd">
+            <div class="dns__panel__title">
+              DKIM · signing key
+              <span class="fn">smartlead._domainkey · TXT</span>
+            </div>
+            <div class="dns__panel__status"><span class="led"></span>signed · 2048-bit RSA</div>
+          </div>
+          <div class="dns__rec">
+            <span class="ln" data-ln="01"><span class="c">; smartlead selector · public key</span></span>
+            <span class="ln" data-ln="02"><span class="k">smartlead._domainkey</span>  <span class="k">3600 IN TXT</span></span>
+            <span class="ln" data-ln="03"><span class="v">  "v=DKIM1; k=rsa; p=</span></span>
+            <span class="ln" data-ln="04"><span class="v">  MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA</span></span>
+            <span class="ln" data-ln="05"><span class="v">  </span><span class="selected">5kQfZ1H7tXG3rQzN8cVm2YwLpJxK4FrTjNvBhE7sQa</span></span>
+            <span class="ln" data-ln="06"><span class="v">  9XmCdRyP6LkW2JhBnVcHsTpYqMfKvAeXuDgFwUiOnQ</span></span>
+            <span class="ln" data-ln="07"><span class="v">  ... 1024 bits truncated for view ...</span></span>
+            <span class="ln" data-ln="08"><span class="v">  wIDAQAB"</span></span>
+          </div>
+          <div class="dns__notes">
+            <div class="dns__note">
+              <div class="dns__note__num">N · 01</div>
+              <div class="dns__note__h">2048-bit, not 1024.</div>
+              <div class="dns__note__b">Microsoft started flagging 1024-bit keys as low-confidence in 2024. Smartlead and Instantly both publish 2048 by default. Verify before going live.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 02</div>
+              <div class="dns__note__h">Selector per sender.</div>
+              <div class="dns__note__b">A separate selector for each sending platform (smartlead._domainkey, google._domainkey) means rotating one key never breaks the other.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 03</div>
+              <div class="dns__note__h">Verify with dig.</div>
+              <div class="dns__note__b">After publishing, <span class="mono">dig +short TXT smartlead._domainkey.yourdomain.com</span> should return the full key. If it returns nothing, the host has split it across multiple TXT records.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DMARC -->
+        <div class="dns__panel" data-panel="dmarc">
+          <div class="dns__panel__hd">
+            <div class="dns__panel__title">
+              DMARC · reporting policy
+              <span class="fn">_dmarc · TXT</span>
+            </div>
+            <div class="dns__panel__status"><span class="led"></span>aligned · pct=100</div>
+          </div>
+          <div class="dns__rec">
+            <span class="ln" data-ln="01"><span class="c">; reporting + alignment policy</span></span>
+            <span class="ln" data-ln="02"><span class="k">_dmarc</span>  <span class="k">3600 IN TXT</span></span>
+            <span class="ln" data-ln="03"><span class="v">  "v=DMARC1;</span></span>
+            <span class="ln" data-ln="04"><span class="v">  </span><span class="selected">p=quarantine</span><span class="v">;</span></span>
+            <span class="ln" data-ln="05"><span class="v">  pct=100;</span></span>
+            <span class="ln" data-ln="06"><span class="v">  rua=mailto:[email protected];</span></span>
+            <span class="ln" data-ln="07"><span class="v">  ruf=mailto:[email protected];</span></span>
+            <span class="ln" data-ln="08"><span class="v">  </span><span class="x">aspf=s; adkim=s</span><span class="v">;</span></span>
+            <span class="ln" data-ln="09"><span class="v">  fo=1; sp=quarantine"</span></span>
+          </div>
+          <div class="dns__notes">
+            <div class="dns__note">
+              <div class="dns__note__num">N · 01</div>
+              <div class="dns__note__h">Ramp the percentage.</div>
+              <div class="dns__note__b">Week 1: p=none, pct=100. Watch the rua reports. Week 3: p=quarantine, pct=10. Week 5: pct=100. Week 8: p=reject if alignment is clean.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 02</div>
+              <div class="dns__note__h">Strict alignment.</div>
+              <div class="dns__note__b">aspf=s and adkim=s mean the From: domain has to match the SPF return-path and the DKIM d= exactly. Catches forwarders that silently relax alignment.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 03</div>
+              <div class="dns__note__h">Read the rua reports.</div>
+              <div class="dns__note__b">Postmark, EasyDMARC, or a custom parser. Every Tuesday morning. The reports tell you which sender is failing alignment before Gmail does.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tracking -->
+        <div class="dns__panel" data-panel="track">
+          <div class="dns__panel__hd">
+            <div class="dns__panel__title">
+              Tracking · custom CNAME
+              <span class="fn">track · CNAME</span>
+            </div>
+            <div class="dns__panel__status"><span class="led"></span>SSL · auto-renewed</div>
+          </div>
+          <div class="dns__rec">
+            <span class="ln" data-ln="01"><span class="c">; custom tracking domain · keeps reputation off the root</span></span>
+            <span class="ln" data-ln="02"><span class="k">track</span>  <span class="k">3600 IN CNAME</span>  <span class="v">open.smartlead.ai.</span></span>
+            <span class="ln" data-ln="03"><span class="k">link</span>   <span class="k">3600 IN CNAME</span>  <span class="v">click.smartlead.ai.</span></span>
+            <span class="ln" data-ln="04"><span class="c">; reply tracking on dedicated mailbox</span></span>
+            <span class="ln" data-ln="05"><span class="k">reply</span>  <span class="k">3600 IN MX 10</span>  <span class="v">mx.zoho.in.</span></span>
+            <span class="ln" data-ln="06"><span class="k">reply</span>  <span class="k">3600 IN TXT</span>      <span class="v">"forward=ops@..."</span></span>
+          </div>
+          <div class="dns__notes">
+            <div class="dns__note">
+              <div class="dns__note__num">N · 01</div>
+              <div class="dns__note__h">Off the root, always.</div>
+              <div class="dns__note__b">A tracking domain that uses your bare root means every open ping ties back to your transactional reputation. Sub-domain isolation matters here too.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 02</div>
+              <div class="dns__note__h">SSL is mandatory.</div>
+              <div class="dns__note__b">Gmail flags HTTP tracking pixels as suspicious. The CNAME must support HTTPS. Most platforms auto-provision via Let's Encrypt; verify it before launching.</div>
+            </div>
+            <div class="dns__note">
+              <div class="dns__note__num">N · 03</div>
+              <div class="dns__note__h">Reply routing.</div>
+              <div class="dns__note__b">Replies hit a dedicated mailbox, get parsed for sentiment, then post to Zoho with the conversation thread intact. No "thanks but no thanks" sliding into the founder's inbox at midnight.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Warm-up -->
+        <div class="dns__panel" data-panel="warm">
+          <div class="dns__panel__hd">
+            <div class="dns__panel__title">
+              Warm-up · 12-week burn
+              <span class="fn">smartlead · warmer pool</span>
+            </div>
+            <div class="dns__panel__status"><span class="led"></span>day 84 · target reached</div>
+          </div>
+
+          <div class="dns__warmup">
+            <div class="dns__warmup__txt">
+              <h4>The 12-week ramp.</h4>
+              <p>A new domain has zero reputation. Send 200 cold emails on day one and the inboxes close. The warmer pool sends from your address to other reputable inboxes, gets the messages opened and replied to, and slowly raises the daily ceiling.</p>
+              <p>Day 1: 5 sends. Day 14: 20. Day 42: 60. Day 84: 100. After that the inbox can carry a real campaign without provider throttling.</p>
+              <p>Three rules I follow without exception: dedicated send domain, four to six inboxes per domain max, and one rest day a week even on a warmed inbox.</p>
+            </div>
+            <div class="dns__warmchart">
+              <div class="dns__warmchart__title">
+                <span>DAILY VOLUME · INBOX-01</span>
+                <b>↗ 5 → 100</b>
+              </div>
+              <svg viewBox="0 0 320 160" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <!-- grid -->
+                <g stroke="rgba(26,42,51,0.10)" stroke-width="0.5">
+                  <line x1="30" y1="20" x2="320" y2="20"/>
+                  <line x1="30" y1="50" x2="320" y2="50"/>
+                  <line x1="30" y1="80" x2="320" y2="80"/>
+                  <line x1="30" y1="110" x2="320" y2="110"/>
+                  <line x1="30" y1="140" x2="320" y2="140" stroke="#1A2A33" stroke-width="1"/>
+                  <line x1="30" y1="20" x2="30" y2="140" stroke="#1A2A33" stroke-width="1"/>
+                </g>
+                <!-- y axis labels -->
+                <g font-family="IBM Plex Mono, monospace" font-size="8" fill="#324048" text-anchor="end">
+                  <text x="26" y="23">100</text>
+                  <text x="26" y="53">75</text>
+                  <text x="26" y="83">50</text>
+                  <text x="26" y="113">25</text>
+                  <text x="26" y="143">0</text>
+                </g>
+                <!-- x axis weeks -->
+                <g font-family="IBM Plex Mono, monospace" font-size="8" fill="#324048" text-anchor="middle">
+                  <text x="55" y="154">W1</text>
+                  <text x="105" y="154">W3</text>
+                  <text x="155" y="154">W5</text>
+                  <text x="205" y="154">W7</text>
+                  <text x="255" y="154">W9</text>
+                  <text x="305" y="154">W12</text>
+                </g>
+                <!-- target line -->
+                <line x1="30" y1="20" x2="320" y2="20" stroke="#B43E2C" stroke-dasharray="3 3" stroke-width="0.8"/>
+                <text x="316" y="14" font-family="IBM Plex Mono, monospace" font-size="8" fill="#B43E2C" text-anchor="end">target · 100/day</text>
+                <!-- area -->
+                <path d="M30 138 L55 134 L80 128 L105 118 L130 106 L155 92 L180 78 L205 64 L230 50 L255 38 L280 28 L305 22 L320 22 L320 140 L30 140 Z" fill="rgba(31,95,110,0.18)"/>
+                <!-- line -->
+                <path d="M30 138 L55 134 L80 128 L105 118 L130 106 L155 92 L180 78 L205 64 L230 50 L255 38 L280 28 L305 22 L320 22" stroke="#1F5F6E" stroke-width="1.5" fill="none"/>
+                <!-- dots -->
+                <g fill="#1F5F6E">
+                  <circle cx="55" cy="134" r="2.2"/>
+                  <circle cx="155" cy="92" r="2.2"/>
+                  <circle cx="255" cy="38" r="2.2"/>
+                  <circle cx="305" cy="22" r="3.2" fill="#B43E2C"/>
+                </g>
+                <!-- callouts -->
+                <g font-family="IBM Plex Mono, monospace" font-size="7.5" fill="#324048">
+                  <text x="58" y="128">5/d</text>
+                  <text x="158" y="86">42/d</text>
+                  <text x="258" y="32">85/d</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 02 · ENGINE -->
+<section class="section" id="engine">
+  <div class="container">
+    <header class="section__hd">
+      <div class="reveal">
+        <div class="section__num"><strong>§ 02</strong>LEAD ENGINE · APOLLO → ZOHO</div>
+      </div>
+      <div class="reveal" style="--d:0.08s">
+        <h2 class="section__title">From an <span class="acc">ICP filter</span> to a <span class="softer">booked</span> meeting.</h2>
+      </div>
+    </header>
+
+    <p class="section__lede reveal">
+      An ICP filter in Apollo gives you 18,000 contacts in your TAM. Maybe 4,000 are reachable. Of those, 600 will see a first email. Twelve will reply. Three will be a meeting. The system has to handle all four numbers without anyone checking it on a Sunday.
+    </p>
+
+    <div class="engine" style="margin-top: 64px;">
+      <!-- PIPELINE VISUALIZER -->
+      <div class="pipeline reveal" style="--d:0.12s">
+        <div class="pipeline__stages">
+          <div class="stage">
+            <div class="stage__hex">01</div>
+            <div class="stage__lbl">Apollo · TAM</div>
+            <div class="stage__num">18,400<span class="pct">contacts</span></div>
+            <div class="stage__sub">ICP filter: SaaS · 50 to 250 staff · NA + EU · founder, COO, head of growth</div>
+          </div>
+          <div class="stage">
+            <div class="stage__hex">02</div>
+            <div class="stage__lbl">Verified</div>
+            <div class="stage__num">11,720<span class="pct">63.7%</span></div>
+            <div class="stage__sub">NeverBounce + Clay enrichment, dedup against CRM, role and seniority match</div>
+          </div>
+          <div class="stage">
+            <div class="stage__hex">03</div>
+            <div class="stage__lbl">Sequence-eligible</div>
+            <div class="stage__num">4,180<span class="pct">35.7%</span></div>
+            <div class="stage__sub">Time-zone bucketed, suppression list filtered, persona segmented across 3 variants</div>
+          </div>
+          <div class="stage">
+            <div class="stage__hex">04</div>
+            <div class="stage__lbl">First-touched</div>
+            <div class="stage__num">588<span class="pct">14.0%</span></div>
+            <div class="stage__sub">Daily ceiling 100 per inbox · 6 inboxes · ~14 day rolling window</div>
+          </div>
+          <div class="stage stage--last">
+            <div class="stage__hex">05</div>
+            <div class="stage__lbl">Replied · positive</div>
+            <div class="stage__num">14<span class="pct">2.4%</span></div>
+            <div class="stage__sub">Sentiment-tagged in Zoho, Slack ping to AE within 4 minutes, 3 booked the meeting</div>
+          </div>
+        </div>
+        <div class="pipeline__floor">
+          <span><strong>Stack</strong> · Apollo + Clay + NeverBounce + Smartlead + Zoho + Slack</span>
+          <span class="accent">Conversion floor → meeting · 0.016 % from raw TAM</span>
+        </div>
+      </div>
+
+      <!-- SEQUENCE STEPPER -->
+      <div class="seq-wrap reveal" style="--d:0.18s">
+        <!-- LEFT RAIL -->
+        <nav class="seq__rail" id="seqRail">
+          <div class="seq__rail__hd">
+            <div class="label">SEQUENCE · 5 STEPS · 14 DAYS</div>
+            <h3>Sample cadence</h3>
+            <p>Click a step to read the message. Reply at any step removes the contact from the sequence and pushes a hot-lead alert.</p>
+          </div>
+          <button class="seq__step is-active" data-step="0">
+            <div class="seq__step__line"><span class="dot"></span></div>
+            <div class="seq__step__num">01</div>
+            <div class="seq__step__body">
+              <div class="seq__step__when">Day 0 · 09:42 local</div>
+              <div class="seq__step__subj">Quick question about {{Company}}</div>
+              <div class="seq__step__hint">Plain-text, 78 words, one ask, no link.</div>
+            </div>
+            <div class="seq__step__chev">›</div>
+          </button>
+          <button class="seq__step" data-step="1">
+            <div class="seq__step__line"><span class="dot"></span></div>
+            <div class="seq__step__num">02</div>
+            <div class="seq__step__body">
+              <div class="seq__step__when">Day 3 · 14:10 local</div>
+              <div class="seq__step__subj">re: Quick question about {{Company}}</div>
+              <div class="seq__step__hint">Reply-to-self, soft bump, references step 1.</div>
+            </div>
+            <div class="seq__step__chev">›</div>
+          </button>
+          <button class="seq__step" data-step="2">
+            <div class="seq__step__line"><span class="dot"></span></div>
+            <div class="seq__step__num">03</div>
+            <div class="seq__step__body">
+              <div class="seq__step__when">Day 6 · 11:00 local</div>
+              <div class="seq__step__subj">A different angle on {{problem}}</div>
+              <div class="seq__step__hint">Pattern interrupt. Different value prop, no ask.</div>
+            </div>
+            <div class="seq__step__chev">›</div>
+          </button>
+          <button class="seq__step" data-step="3">
+            <div class="seq__step__line"><span class="dot"></span></div>
+            <div class="seq__step__num">04</div>
+            <div class="seq__step__body">
+              <div class="seq__step__when">Day 10 · 09:00 local</div>
+              <div class="seq__step__subj">{{FirstName}}, last note from me</div>
+              <div class="seq__step__hint">Permission close. Asks if it's a no, not a yes.</div>
+            </div>
+            <div class="seq__step__chev">›</div>
+          </button>
+          <button class="seq__step" data-step="4">
+            <div class="seq__step__line"><span class="dot"></span></div>
+            <div class="seq__step__num">05</div>
+            <div class="seq__step__body">
+              <div class="seq__step__when">Day 14 · 16:30 local</div>
+              <div class="seq__step__subj">Closing the loop</div>
+              <div class="seq__step__hint">Goodbye message. Drops contact into the 90-day nurture.</div>
+            </div>
+            <div class="seq__step__chev">›</div>
+          </button>
+        </nav>
+
+        <!-- RIGHT EMAIL RENDER -->
+        <article class="seq__email">
+          <div class="seq__email__chrome">
+            <div class="seq__email__client">
+              <span class="seq__email__client__dots"><span></span><span></span><span></span></span>
+              <span>STEP <b id="seqStepNum">01</b> / 05 · GMAIL DESKTOP RENDER</span>
+            </div>
+            <div class="seq__email__meta">
+              <b id="seqMetaWhen">Mon · 09:42 IST</b>
+              <span id="seqMetaTo">to: maya@{{company}}</span>
+            </div>
+          </div>
+
+          <header class="seq__email__head">
+            <div class="seq__email__from">
+              <div class="seq__email__avatar">RS</div>
+              <div class="seq__email__from__txt">
+                <h5>Rounak Singh</h5>
+                <span id="seqFromAddr">[email protected]</span>
+              </div>
+            </div>
+            <h2 class="seq__email__subj" id="seqSubj">Quick question about {{Company}}</h2>
+            <div class="seq__email__pre" id="seqPre">Saw the new pricing page · noticed you're hiring two AEs · 78 words below.</div>
+          </header>
+
+          <div class="seq__email__body" id="seqBody">
+            <p>Hi Maya,</p>
+            <p>Saw {{Company}} just opened two AE roles and rebuilt the pricing page in the last month. <span class="hl">Both moves usually mean outbound is about to step up</span>, and the systems behind it become the bottleneck about six weeks in.</p>
+            <p>I do the boring half of that. Apollo or LinkedIn Navigator into a verified list, Smartlead or Instantly for sequencing, Zoho or HubSpot wired up so reply-handling and reporting aren't manual. Domain warm-up, SPF/DKIM/DMARC, the lot.</p>
+            <p>Worth a 15-minute look at how yours is set up?</p>
+            <div class="seq__email__sig">
+              Rounak<br/>
+              <span>github.com/rounaksingh890 · upwork.com/freelancers/rounaksingh</span>
+            </div>
+          </div>
+
+          <footer class="seq__email__foot">
+            <span class="stat"><span class="led"></span><b>SPF · DKIM · DMARC</b> aligned</span>
+            <span class="stat" id="seqFootRender">Render · Gmail / Outlook / Apple · pass</span>
+            <span class="stat">Track · custom · <b>track.rs.email</b></span>
+          </footer>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 03 · CRM -->
+<section class="section" id="crm">
+  <div class="container">
+    <header class="section__hd">
+      <div class="reveal">
+        <div class="section__num"><strong>§ 03</strong>ZOHO CRM · BUILT TO NOT LIE</div>
+      </div>
+      <div class="reveal" style="--d:0.08s">
+        <h2 class="section__title">A CRM that <span class="softer">doesn't</span> drop replies on the <span class="acc">floor.</span></h2>
+      </div>
+    </header>
+
+    <p class="section__lede reveal">
+      Lead source, campaign, sequence variant, reply sentiment, follow-up due date. If any one of those isn't a real field, your reporting dashboard is fiction. Zoho's defaults won't get you there. Custom fields, validation rules, blueprint workflows, and a deduplication rule that runs on creation, not in a nightly sweep.
+    </p>
+
+    <div class="crm" style="margin-top: 56px;">
+      <!-- KANBAN -->
+      <div class="crm__board reveal" style="--d:0.12s">
+        <header class="crm__board__hd">
+          <h4>Lead pipeline · this week</h4>
+          <div class="filter">
+            <span class="on">All</span>
+            <span>Hot</span>
+            <span>Nurture</span>
+            <span>Disqualified</span>
+          </div>
+        </header>
+        <div class="kanban">
+          <!-- col 1 -->
+          <div class="col">
+            <div class="col__hd"><span class="name">New lead</span><span class="count">142</span></div>
+            <div class="card">
+              <div class="card__name">Maya Chen</div>
+              <div class="card__role">Head of growth</div>
+              <div class="card__co">Northbound · 64</div>
+              <span class="card__tag">apollo · v2</span>
+            </div>
+            <div class="card">
+              <div class="card__name">Aaron Voss</div>
+              <div class="card__role">Founder · CEO</div>
+              <div class="card__co">Lattic.io · 28</div>
+              <span class="card__tag">linkedin</span>
+            </div>
+            <div class="card">
+              <div class="card__name">Priya Rege</div>
+              <div class="card__role">VP Sales</div>
+              <div class="card__co">Glasspoint · 180</div>
+              <span class="card__tag">apollo · v1</span>
+            </div>
+          </div>
+          <!-- col 2 -->
+          <div class="col">
+            <div class="col__hd"><span class="name">Email sent</span><span class="count">87</span></div>
+            <div class="card">
+              <div class="card__name">Sam Okafor</div>
+              <div class="card__role">COO</div>
+              <div class="card__co">Hovr · 92</div>
+              <span class="card__tag">step · 02</span>
+            </div>
+            <div class="card">
+              <div class="card__name">Lin Zhao</div>
+              <div class="card__role">Head of RevOps</div>
+              <div class="card__co">Quanta · 220</div>
+              <span class="card__tag">step · 01</span>
+            </div>
+          </div>
+          <!-- col 3 -->
+          <div class="col">
+            <div class="col__hd col__hd--good"><span class="name">Replied · positive</span><span class="count">14</span></div>
+            <div class="card card--good">
+              <div class="card__name">Ben Ashford</div>
+              <div class="card__role">Founder</div>
+              <div class="card__co">Vellam · 42</div>
+              <span class="card__tag card__tag--good">interested</span>
+            </div>
+            <div class="card card--good">
+              <div class="card__name">Ines Marquez</div>
+              <div class="card__role">Head of marketing</div>
+              <div class="card__co">Strato.dev · 70</div>
+              <span class="card__tag card__tag--good">replied · 4 min</span>
+            </div>
+          </div>
+          <!-- col 4 -->
+          <div class="col">
+            <div class="col__hd col__hd--rust"><span class="name">Meeting scheduled</span><span class="count">3</span></div>
+            <div class="card card--rust">
+              <div class="card__name">Robin Yates</div>
+              <div class="card__role">Director · sales</div>
+              <div class="card__co">Boundary · 134</div>
+              <span class="card__tag card__tag--hot">cal · thu 16:00</span>
+            </div>
+            <div class="card card--rust">
+              <div class="card__name">Tomás Ferreira</div>
+              <div class="card__role">CMO</div>
+              <div class="card__co">Edgenote · 88</div>
+              <span class="card__tag card__tag--hot">cal · fri 11:30</span>
+            </div>
+          </div>
+          <!-- col 5 -->
+          <div class="col">
+            <div class="col__hd col__hd--warn"><span class="name">Nurture · 90 d</span><span class="count">412</span></div>
+            <div class="card card--warn">
+              <div class="card__name">Kavya Iyer</div>
+              <div class="card__role">Head of growth</div>
+              <div class="card__co">Stitchwork · 56</div>
+              <span class="card__tag card__tag--warn">soft no · q3</span>
+            </div>
+            <div class="card card--warn">
+              <div class="card__name">Owen Park</div>
+              <div class="card__role">VP marketing</div>
+              <div class="card__co">Lyne · 110</div>
+              <span class="card__tag card__tag--warn">budget · q4</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCHEMA -->
+      <div class="crm__schema reveal" style="--d:0.2s">
+        <header class="crm__schema__hd">
+          <h4>Custom fields · leads module</h4>
+          <span class="label">14 fields · 5 mandatory</span>
+        </header>
+        <div class="field"><div class="field__name"><b>*</b>Lead source<span>apollo / linkedin / referral / inbound</span></div><div class="field__type">picklist</div></div>
+        <div class="field"><div class="field__name"><b>*</b>Campaign tag<span>q2-saas-na-v1, q2-saas-eu-v2 ...</span></div><div class="field__type">lookup</div></div>
+        <div class="field"><div class="field__name"><b>*</b>Sequence step<span>last step the contact saw</span></div><div class="field__type">number</div></div>
+        <div class="field"><div class="field__name">Reply sentiment<span>auto-tagged via OpenAI on inbound parse</span></div><div class="field__type">picklist</div></div>
+        <div class="field"><div class="field__name">Last reply (raw)<span>verbatim, for context on the AE call</span></div><div class="field__type">text · long</div></div>
+        <div class="field"><div class="field__name"><b>*</b>Owner<span>round-robin by region · auto-assign</span></div><div class="field__type">user · req</div></div>
+        <div class="field"><div class="field__name"><b>*</b>Next action due<span>blocks stage advance if blank</span></div><div class="field__type">date</div></div>
+        <div class="field"><div class="field__name">Domain age + signal<span>company age, recent funding, hires</span></div><div class="field__type">json</div></div>
+
+        <div class="crm__rules">
+          <ol>
+            <li><b>on_create</b>(lead) → dedup vs (email + linkedin_url)</li>
+            <li><b>on_reply</b>(lead) → tag sentiment, halt sequence, ping #sales</li>
+            <li><b>on_meeting_booked</b> → assign AE, calendar invite, lead score +20</li>
+            <li><b>on_no_action_7d</b> → escalate to owner's manager</li>
+            <li><b>nightly · 02:00</b> → rebuild reporting cube, refresh Looker dashboard</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 04 · REPORTING -->
+<section class="section" id="reporting" style="padding-top: 0;">
+  <div class="container">
+    <header class="section__hd">
+      <div class="reveal">
+        <div class="section__num"><strong>§ 04</strong>REPORTING · WEEKLY · MONDAY 9 AM</div>
+      </div>
+      <div class="reveal" style="--d:0.08s">
+        <h2 class="section__title">Numbers on a <span class="acc">cadence,</span> not on <span class="softer">demand.</span></h2>
+      </div>
+    </header>
+
+    <p class="section__lede reveal">
+      A dashboard that opens every Monday at 9 am and tells you what changed since last Monday. Built in Zoho Analytics, mirrored to Looker Studio for read-only client access, posted to Slack as a Tuesday digest. Numbers reconcile across the three because the data layer is one source, not three.
+    </p>
+
+    <div class="report reveal" style="--d:0.12s; margin-top: 56px;">
+      <div class="kpi">
+        <div class="kpi__lbl">Verified contacts · wk</div>
+        <div class="kpi__val">3,420</div>
+        <div class="kpi__delta up">↗ +11.2 % vs prev wk</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 22 L12 18 L24 21 L36 17 L48 14 L60 11 L72 13 L84 8 L100 5" stroke="#1F5F6E" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Emails delivered</div>
+        <div class="kpi__val">2,914</div>
+        <div class="kpi__delta up">↗ 98.6 % delivery</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 14 L14 12 L28 13 L42 9 L56 11 L70 7 L84 8 L100 6" stroke="#1F5F6E" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Bounce rate</div>
+        <div class="kpi__val">1.2<span class="small">%</span></div>
+        <div class="kpi__delta up">↘ −0.4 pts vs prev wk</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 8 L14 11 L28 9 L42 13 L56 15 L70 17 L84 19 L100 21" stroke="#4A7A4F" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Open rate</div>
+        <div class="kpi__val">42.1<span class="small">%</span></div>
+        <div class="kpi__delta up">↗ +3.8 pts</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 20 L14 18 L28 16 L42 14 L56 11 L70 9 L84 8 L100 6" stroke="#1F5F6E" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Reply rate</div>
+        <div class="kpi__val">3.1<span class="small">%</span></div>
+        <div class="kpi__delta up">↗ +0.6 pts</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 22 L14 21 L28 18 L42 19 L56 14 L70 12 L84 11 L100 8" stroke="#1F5F6E" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Positive replies</div>
+        <div class="kpi__val">38</div>
+        <div class="kpi__delta up">↗ +9 vs prev wk</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 24 L14 22 L28 20 L42 21 L56 16 L70 14 L84 11 L100 7" stroke="#B43E2C" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Meetings booked</div>
+        <div class="kpi__val">11</div>
+        <div class="kpi__delta up">↗ +3</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 22 L14 24 L28 21 L42 19 L56 17 L70 15 L84 12 L100 9" stroke="#B43E2C" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">CRM hygiene</div>
+        <div class="kpi__val">99.4<span class="small">%</span></div>
+        <div class="kpi__delta up">↗ dedup · validated</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 7 L14 8 L28 6 L42 7 L56 5 L70 6 L84 4 L100 4" stroke="#1F5F6E" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Pipeline value</div>
+        <div class="kpi__val">$284<span class="small">K</span></div>
+        <div class="kpi__delta up">↗ +$58K · opp's added</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 22 L14 19 L28 21 L42 16 L56 14 L70 11 L84 9 L100 6" stroke="#B43E2C" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Domain reputation</div>
+        <div class="kpi__val">94<span class="small">/100</span></div>
+        <div class="kpi__delta up">↗ Google Postmaster</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 12 L14 10 L28 11 L42 8 L56 9 L70 7 L84 6 L100 5" stroke="#1F5F6E" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Active inboxes</div>
+        <div class="kpi__val">6</div>
+        <div class="kpi__delta up">↗ all warmed · 100/d</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 10 L14 10 L28 10 L42 10 L56 10 L70 10 L84 10 L100 10" stroke="#1F5F6E" stroke-width="1.4" fill="none" stroke-dasharray="3 3"/></svg>
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__lbl">Cost per meeting</div>
+        <div class="kpi__val">$184</div>
+        <div class="kpi__delta up">↘ −$22 vs prev wk</div>
+        <div class="kpi__spark">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 6 L14 8 L28 7 L42 9 L56 11 L70 13 L84 15 L100 18" stroke="#4A7A4F" stroke-width="1.4" fill="none"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <div class="container">
+    <div class="cta__inner">
+      <div class="reveal">
+        <h2 class="cta__h">
+          Send a job post or your <br/>
+          current setup. <span class="ul"><span class="acc">Two days</span></span> for an audit, <br/>
+          ten to fourteen for a build.
+        </h2>
+        <p class="cta__sub">
+          I work in 1- to 4-week engagements. Audits get a written report with the eight things I'd fix in order. Builds ship a documented system, the credentials in a vault, and a 30-minute handover call. No retainers unless you want one.
+        </p>
+      </div>
+      <div class="cta__contact reveal" style="--d:0.1s">
+        <div class="cta__row"><span class="k">Email</span><a class="v" href="mailto:[email protected]">[email protected]</a></div>
+        <div class="cta__row"><span class="k">Upwork</span><a class="v" href="#" target="_blank" rel="noopener">upwork.com/freelancers/rounaksingh</a></div>
+        <div class="cta__row"><span class="k">Calendly</span><a class="v" href="#" target="_blank" rel="noopener">cal.com/rounak / 20 min</a></div>
+        <div class="cta__row"><span class="k">Timezone</span><span class="v" style="border:none;">UTC+5:30 · responds within 4h</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container footer__inner">
+    <span><span class="num">02</span> · OUTBOUND SYSTEMS · DRAWING PACK</span>
+    <span>R. SINGH · IND · 2026</span>
+    <span>SHEET 02 OF 14 · END</span>
+  </div>
+</footer>
+
+</div><!-- /shell -->
+
+
+<!-- ================================================================
+     DOM INTERACTIVITY · regular script · runs even if Three.js fails
+     ================================================================ -->
+<script>
+(function () {
+  'use strict';
+
+  /* ---------------- DNS TABS ---------------- */
+  var tabs = document.querySelectorAll('.dns__tab');
+  var panels = document.querySelectorAll('.dns__panel');
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      var k = t.dataset.tab;
+      tabs.forEach(function (x) { x.classList.toggle('is-active', x === t); });
+      panels.forEach(function (p) { p.classList.toggle('is-active', p.dataset.panel === k); });
+    });
+  });
+
+  /* ---------------- SEQUENCE STEPPER ---------------- */
+  var SEQ = [
+    {
+      when: 'Mon · 09:42 IST',
+      to: 'to: [email protected]',
+      from: '[email protected] · via smartlead',
+      subj: 'Quick question about Northbound',
+      pre: 'Saw the new pricing page · noticed you\'re hiring two AEs · 78 words below.',
+      body: '<p>Hi Maya,</p>'
+        + '<p>Saw Northbound just opened two AE roles and rebuilt the pricing page in the last month. <span class="hl">Both moves usually mean outbound is about to step up</span>, and the systems behind it become the bottleneck about six weeks in.</p>'
+        + '<p>I do the boring half of that. Apollo or LinkedIn Navigator into a verified list, Smartlead or Instantly for sequencing, Zoho or HubSpot wired up so reply-handling and reporting aren\'t manual. Domain warm-up, SPF/DKIM/DMARC, the lot.</p>'
+        + '<p>Worth a 15-minute look at how yours is set up?</p>',
+      foot: 'Render · Gmail / Outlook / Apple · pass'
+    },
+    {
+      when: 'Thu · 14:10 IST',
+      to: 'to: [email protected]',
+      from: '[email protected] · via smartlead',
+      subj: 're: Quick question about Northbound',
+      pre: 'Reply-to-self · soft bump · 41 words.',
+      body: '<p>Maya,</p>'
+        + '<p>Quick bump on the note below. Two specifics I should have included: I work in 1- to 4-week scopes, and I write the documentation as I build so the next person doesn\'t reverse-engineer the setup at 11 pm.</p>'
+        + '<p><span class="hl">Want me to send a 15-minute audit slot</span> or is the timing off?</p>',
+      foot: 'Reply-to-self · same thread · improves open rate ~14%'
+    },
+    {
+      when: 'Mon · 11:00 IST',
+      to: 'to: [email protected]',
+      from: '[email protected] · via smartlead',
+      subj: 'A different angle on outbound at Northbound',
+      pre: 'Pattern interrupt · different value prop · no ask · 92 words.',
+      body: '<p>Hey Maya,</p>'
+        + '<p>Different note from me. Forget the system question for a second.</p>'
+        + '<p>One pattern I see at SaaS shops in your stage: the founder still owns 60% of the AE seat\'s pipeline, then the new AE joins and inherits a CRM with three "lead source" values that all mean Apollo. The reporting layer breaks before the AE does.</p>'
+        + '<p>Not pitching anything. Just sharing the pattern. If it sounds familiar, my notes on how to fix it are <span class="hl">here</span>.</p>',
+      foot: 'No CTA · pure context · highest reply rate of the cadence'
+    },
+    {
+      when: 'Fri · 09:00 IST',
+      to: 'to: [email protected]',
+      from: '[email protected] · via smartlead',
+      subj: 'Maya, last note from me',
+      pre: 'Permission close · asks for a no, not a yes · 38 words.',
+      body: '<p>Maya,</p>'
+        + '<p>Last note in this thread. <span class="hl">Easier to say no than to keep ignoring me</span>, and I\'d rather know.</p>'
+        + '<p>One reply tells me whether to circle back in 90 days or close it out. Either way, no follow-up after this.</p>',
+      foot: 'Permission close · gets ~8% reply rate, 60% of which are positive'
+    },
+    {
+      when: 'Tue · 16:30 IST',
+      to: 'to: [email protected]',
+      from: '[email protected] · via smartlead',
+      subj: 'Closing the loop',
+      pre: 'Goodbye · soft handoff to a 90-day nurture · 32 words.',
+      body: '<p>Maya,</p>'
+        + '<p>Closing the loop on this thread. I\'ll drop you into a quarterly check-in (one note per quarter, no more) so this isn\'t the last you hear from me, but I\'ll stop the direct outreach.</p>'
+        + '<p>Good luck with the AE hires.</p>',
+      foot: 'Auto-moves contact to Nurture · 90-day cadence in Zoho'
+    }
+  ];
+
+  var seqSteps = document.querySelectorAll('.seq__step');
+  var seqStepNum = document.getElementById('seqStepNum');
+  var seqMetaWhen = document.getElementById('seqMetaWhen');
+  var seqMetaTo = document.getElementById('seqMetaTo');
+  var seqFromAddr = document.getElementById('seqFromAddr');
+  var seqSubj = document.getElementById('seqSubj');
+  var seqPre = document.getElementById('seqPre');
+  var seqBody = document.getElementById('seqBody');
+  var seqFoot = document.getElementById('seqFootRender');
+
+  function renderSeq(i) {
+    var s = SEQ[i];
+    seqSteps.forEach(function (b, n) { b.classList.toggle('is-active', n === i); });
+    if (seqStepNum) seqStepNum.textContent = String(i + 1).padStart(2, '0');
+    if (seqMetaWhen) seqMetaWhen.textContent = s.when;
+    if (seqMetaTo) seqMetaTo.textContent = s.to;
+    if (seqFromAddr) seqFromAddr.textContent = s.from;
+    if (seqSubj) seqSubj.textContent = s.subj;
+    if (seqPre) seqPre.textContent = s.pre;
+    if (seqBody) {
+      seqBody.innerHTML = s.body
+        + '<div class="seq__email__sig">Rounak<br/><span>github.com/rounaksingh890 · upwork.com/freelancers/rounaksingh</span></div>';
+    }
+    if (seqFoot) seqFoot.textContent = s.foot;
+  }
+  seqSteps.forEach(function (b) {
+    b.addEventListener('click', function () { renderSeq(parseInt(b.dataset.step, 10)); });
+  });
+  if (seqSteps.length) renderSeq(0);
+
+  /* ---------------- CUSTOM CURSOR ---------------- */
+  var cursor = document.querySelector('.cursor');
+  var cx = 0, cy = 0, tX = 0, tY = 0;
+  if (window.matchMedia && window.matchMedia('(hover: hover)').matches && cursor) {
+    window.addEventListener('mousemove', function (e) { tX = e.clientX; tY = e.clientY; });
+    (function tickCursor() {
+      cx += (tX - cx) * 0.22;
+      cy += (tY - cy) * 0.22;
+      cursor.style.transform = 'translate(' + cx + 'px, ' + cy + 'px)';
+      requestAnimationFrame(tickCursor);
+    })();
+    document.querySelectorAll('a, button, .seq__step, .dns__tab, .card').forEach(function (el) {
+      el.addEventListener('mouseenter', function () { cursor.classList.add('is-hover'); });
+      el.addEventListener('mouseleave', function () { cursor.classList.remove('is-hover'); });
+    });
+  }
+
+  /* ---------------- REVEAL ON SCROLL ---------------- */
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('is-in');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+  } else {
+    // Old browser, just show everything
+    document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('is-in'); });
+  }
+
+  // Final safety net: if for any reason an element is still hidden after 2.5s, reveal it.
+  setTimeout(function () {
+    document.querySelectorAll('.reveal:not(.is-in)').forEach(function (el) {
+      var r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight && r.bottom > 0) el.classList.add('is-in');
+    });
+  }, 2500);
+})();
+</script>
+
+
+<!-- ================================================================
+     THREE.JS · WIREFRAME SYSTEM SCHEMATIC · isolated module
+     If this fails (network, CDN, importmap unsupported), the rest of
+     the page above is unaffected.
+     ================================================================ -->
+<script type="module">
+import * as THREE from 'three';
+
+/* ================================================================
+   THREE.JS · WIREFRAME SYSTEM SCHEMATIC
+   - Nodes drift in space, connected by dashed lines.
+   - Particles flow along the connections.
+   - Camera dollies forward with scroll, formations shift per section.
+   ================================================================ */
+
+const canvas = document.getElementById('three');
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 0, 22);
+
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---- PALETTE ---- */
+const COL = {
+  ink: new THREE.Color('#1A2A33'),
+  teal: new THREE.Color('#1F5F6E'),
+  tealBright: new THREE.Color('#3A8E9F'),
+  rust: new THREE.Color('#B43E2C'),
+  paper: new THREE.Color('#E5E2D6'),
+};
+
+/* ---- WIREFRAME NODE BOXES ---- */
+// 7 main system nodes, positioned in 3D space.
+// They lerp through 3 formations driven by scroll.
+const NODE_COUNT = 7;
+const formations = [
+  // Formation A · spread, Section 1 (hero / infrastructure)
+  [
+    new THREE.Vector3(-9.5, 3.2, -2),
+    new THREE.Vector3(-6.0, -2.4, -4),
+    new THREE.Vector3(-2.5, 2.6,  0),
+    new THREE.Vector3( 0.5, -3.0, -3),
+    new THREE.Vector3( 3.8, 2.2, -1),
+    new THREE.Vector3( 7.2, -1.8, -5),
+    new THREE.Vector3(10.5, 2.8, -2),
+  ],
+  // Formation B · pipeline / engine (linear flow left to right)
+  [
+    new THREE.Vector3(-12, 0.5, -2),
+    new THREE.Vector3(-8.0, -0.3, -2),
+    new THREE.Vector3(-4.0, 0.4, -2),
+    new THREE.Vector3( 0.0, -0.2, -2),
+    new THREE.Vector3( 4.0, 0.5, -2),
+    new THREE.Vector3( 8.0, -0.3, -2),
+    new THREE.Vector3(12, 0.4, -2),
+  ],
+  // Formation C · CRM (cluster around center)
+  [
+    new THREE.Vector3(-3.2, 2.2, -1),
+    new THREE.Vector3( 0.0, 3.6, -2),
+    new THREE.Vector3( 3.4, 2.2, -1),
+    new THREE.Vector3(-4.6, -1.4, -2),
+    new THREE.Vector3( 4.8, -1.4, -2),
+    new THREE.Vector3(-1.6, -3.4, -1),
+    new THREE.Vector3( 1.8, -3.4, -1),
+  ],
+  // Formation D · constellation, reporting (spread out, deeper)
+  [
+    new THREE.Vector3(-10, 4.4, -6),
+    new THREE.Vector3( -7, -3.6, -8),
+    new THREE.Vector3( -3, 4.0, -10),
+    new THREE.Vector3(  0, -2.0, -7),
+    new THREE.Vector3(  4, 3.4, -9),
+    new THREE.Vector3(  7, -3.0, -8),
+    new THREE.Vector3( 11, 3.8, -7),
+  ]
+];
+
+const nodeGroup = new THREE.Group();
+scene.add(nodeGroup);
+
+const nodes = [];
+const NODE_SIZES = [
+  [1.6, 1.0, 1.0], [1.2, 1.4, 1.2], [1.8, 1.2, 1.4],
+  [1.2, 1.2, 1.0], [1.6, 1.4, 1.2], [1.4, 1.0, 1.4], [1.8, 1.2, 1.0]
+];
+
+for (let i = 0; i < NODE_COUNT; i++) {
+  const [w, h, d] = NODE_SIZES[i];
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const edges = new THREE.EdgesGeometry(geo);
+  const lineMat = new THREE.LineBasicMaterial({
+    color: i === 3 ? COL.rust : COL.teal,
+    transparent: true,
+    opacity: i === 3 ? 0.85 : 0.55,
+  });
+  const line = new THREE.LineSegments(edges, lineMat);
+
+  // soft fill behind
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: i === 3 ? COL.rust : COL.teal,
+    transparent: true,
+    opacity: 0.05,
+  });
+  const fill = new THREE.Mesh(geo, fillMat);
+
+  const wrap = new THREE.Group();
+  wrap.add(fill);
+  wrap.add(line);
+
+  // initial position
+  wrap.position.copy(formations[0][i]);
+
+  // each node has a small constant rotation drift
+  wrap.userData.spin = new THREE.Vector3(
+    (Math.random() - 0.5) * 0.0035,
+    (Math.random() - 0.5) * 0.0035,
+    (Math.random() - 0.5) * 0.0025,
+  );
+  wrap.userData.basePos = wrap.position.clone();
+  wrap.userData.driftSeed = Math.random() * Math.PI * 2;
+
+  nodeGroup.add(wrap);
+  nodes.push(wrap);
+}
+
+/* ---- DASHED CONNECTIONS ---- */
+// Connect specific node pairs that look like a flow/system.
+const connections = [
+  [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6],   // main flow
+  [0, 2], [2, 4], [4, 6],                             // upper arc
+  [1, 3], [3, 5],                                     // lower arc
+  [3, 6],                                             // CRM → reports
+];
+
+const lineGroup = new THREE.Group();
+scene.add(lineGroup);
+const lines = [];
+
+for (const [a, b] of connections) {
+  const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const material = new THREE.LineDashedMaterial({
+    color: COL.teal,
+    dashSize: 0.18,
+    gapSize: 0.18,
+    transparent: true,
+    opacity: 0.34,
+  });
+  const line = new THREE.Line(geometry, material);
+  line.userData = { a, b };
+  lineGroup.add(line);
+  lines.push(line);
+}
+
+function updateLines() {
+  for (const line of lines) {
+    const a = nodes[line.userData.a].position;
+    const b = nodes[line.userData.b].position;
+    const pos = line.geometry.attributes.position;
+    if (pos) {
+      pos.setXYZ(0, a.x, a.y, a.z);
+      pos.setXYZ(1, b.x, b.y, b.z);
+      pos.needsUpdate = true;
+      line.computeLineDistances();
+    }
+  }
+}
+
+/* ---- PARTICLE STREAM ALONG CONNECTIONS ---- */
+// Each "lead" particle picks a connection and travels along it, then loops.
+const PARTICLES = 220;
+const partGeo = new THREE.BufferGeometry();
+const partPos = new Float32Array(PARTICLES * 3);
+const partColors = new Float32Array(PARTICLES * 3);
+partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3));
+partGeo.setAttribute('color', new THREE.BufferAttribute(partColors, 3));
+
+const partMat = new THREE.PointsMaterial({
+  size: 0.045,
+  vertexColors: true,
+  transparent: true,
+  opacity: 0.95,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+});
+const particles = new THREE.Points(partGeo, partMat);
+scene.add(particles);
+
+const partState = [];
+for (let i = 0; i < PARTICLES; i++) {
+  const conn = connections[Math.floor(Math.random() * connections.length)];
+  partState.push({
+    a: conn[0],
+    b: conn[1],
+    t: Math.random(),
+    speed: 0.0024 + Math.random() * 0.0042,
+  });
+  // colour: most teal, every ~15th rust
+  const c = (i % 13 === 0) ? COL.rust : (i % 7 === 0 ? COL.tealBright : COL.teal);
+  partColors[i*3] = c.r;
+  partColors[i*3+1] = c.g;
+  partColors[i*3+2] = c.b;
+}
+partGeo.attributes.color.needsUpdate = true;
+
+function updateParticles() {
+  for (let i = 0; i < PARTICLES; i++) {
+    const s = partState[i];
+    s.t += s.speed;
+    if (s.t > 1) {
+      s.t = 0;
+      // sometimes reroute to a different connection
+      if (Math.random() < 0.3) {
+        const conn = connections[Math.floor(Math.random() * connections.length)];
+        s.a = conn[0];
+        s.b = conn[1];
+      }
+    }
+    const a = nodes[s.a].position;
+    const b = nodes[s.b].position;
+    partPos[i*3]   = a.x + (b.x - a.x) * s.t;
+    partPos[i*3+1] = a.y + (b.y - a.y) * s.t;
+    partPos[i*3+2] = a.z + (b.z - a.z) * s.t;
+  }
+  partGeo.attributes.position.needsUpdate = true;
+}
+
+/* ---- AMBIENT BACKGROUND DETAIL ---- */
+// Scatter small wireframe icosahedrons in the depth, drifting gently.
+const ambientGroup = new THREE.Group();
+scene.add(ambientGroup);
+for (let i = 0; i < 24; i++) {
+  const r = 0.18 + Math.random() * 0.32;
+  const ico = new THREE.IcosahedronGeometry(r, 0);
+  const ed = new THREE.EdgesGeometry(ico);
+  const m = new THREE.LineBasicMaterial({
+    color: COL.teal,
+    transparent: true,
+    opacity: 0.18 + Math.random() * 0.18,
+  });
+  const ls = new THREE.LineSegments(ed, m);
+  ls.position.set(
+    (Math.random() - 0.5) * 36,
+    (Math.random() - 0.5) * 22,
+    -8 - Math.random() * 14,
+  );
+  ls.userData.driftSeed = Math.random() * Math.PI * 2;
+  ls.userData.spin = new THREE.Vector3(
+    (Math.random() - 0.5) * 0.005,
+    (Math.random() - 0.5) * 0.005,
+    (Math.random() - 0.5) * 0.005,
+  );
+  ambientGroup.add(ls);
+}
+
+/* ---- DUST POINTS · sparse, deep ---- */
+const DUST = 380;
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(DUST * 3);
+for (let i = 0; i < DUST; i++) {
+  dustPos[i*3]   = (Math.random() - 0.5) * 70;
+  dustPos[i*3+1] = (Math.random() - 0.5) * 38;
+  dustPos[i*3+2] = -20 - Math.random() * 28;
+}
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+const dustMat = new THREE.PointsMaterial({
+  color: COL.ink,
+  size: 0.022,
+  transparent: true,
+  opacity: 0.45,
+  depthWrite: false,
+});
+const dust = new THREE.Points(dustGeo, dustMat);
+scene.add(dust);
+
+/* ---- SCROLL + MOUSE ---- */
+let scrollNorm = 0;
+let scrollLerp = 0;
+let mouseX = 0, mouseY = 0;
+let mxLerp = 0, myLerp = 0;
+
+function updateScroll() {
+  const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+  scrollNorm = Math.min(1, Math.max(0, window.scrollY / max));
+}
+window.addEventListener('scroll', updateScroll, { passive: true });
+updateScroll();
+
+window.addEventListener('mousemove', (e) => {
+  mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+  mouseY = (e.clientY / window.innerHeight) * 2 - 1;
+});
+
+/* ---- ANIMATION LOOP ---- */
+let t0 = performance.now();
+function animate() {
+  const now = performance.now();
+  const dt = Math.min(64, now - t0);
+  t0 = now;
+  const time = now * 0.001;
+
+  scrollLerp += (scrollNorm - scrollLerp) * 0.075;
+  mxLerp += (mouseX - mxLerp) * 0.05;
+  myLerp += (mouseY - myLerp) * 0.05;
+
+  // Camera dolly + parallax
+  camera.position.x = mxLerp * 1.6;
+  camera.position.y = -myLerp * 1.0 + scrollLerp * -2.0;
+  camera.position.z = 22 - scrollLerp * 14;
+  camera.lookAt(scrollLerp * 0.6, 0, 0);
+
+  // Formation lerp · 4 zones across the scroll
+  // zone 0..1: formations[0]→[1], 1..2: [1]→[2], 2..3: [2]→[3]
+  const zone = scrollLerp * 3;
+  const idx = Math.min(2, Math.floor(zone));
+  const localT = zone - idx;
+  const fA = formations[idx];
+  const fB = formations[idx + 1];
+  const driftAmp = 0.42;
+
+  for (let i = 0; i < NODE_COUNT; i++) {
+    const node = nodes[i];
+    // target pos = lerp(fA, fB) + drift
+    const ax = fA[i].x + (fB[i].x - fA[i].x) * localT;
+    const ay = fA[i].y + (fB[i].y - fA[i].y) * localT;
+    const az = fA[i].z + (fB[i].z - fA[i].z) * localT;
+
+    const drift = node.userData.driftSeed;
+    const dx = Math.sin(time * 0.45 + drift) * driftAmp;
+    const dy = Math.cos(time * 0.32 + drift * 1.3) * driftAmp * 0.7;
+    const dz = Math.sin(time * 0.22 + drift * 0.7) * driftAmp * 0.5;
+
+    // smooth follow toward target
+    const tx = ax + dx;
+    const ty = ay + dy;
+    const tz = az + dz;
+    node.position.x += (tx - node.position.x) * 0.06;
+    node.position.y += (ty - node.position.y) * 0.06;
+    node.position.z += (tz - node.position.z) * 0.06;
+
+    // spin
+    node.rotation.x += node.userData.spin.x;
+    node.rotation.y += node.userData.spin.y;
+    node.rotation.z += node.userData.spin.z;
+  }
+
+  // Ambient drift
+  ambientGroup.children.forEach((m, i) => {
+    m.rotation.x += m.userData.spin.x;
+    m.rotation.y += m.userData.spin.y;
+    m.position.y += Math.sin(time * 0.4 + m.userData.driftSeed) * 0.0024;
+  });
+  ambientGroup.rotation.y = mxLerp * 0.08;
+
+  // dust follows camera slightly
+  dust.position.x = camera.position.x * 0.4;
+  dust.position.y = camera.position.y * 0.4;
+
+  // update connections + particles
+  updateLines();
+  updateParticles();
+
+  // pulsate connection opacity slightly
+  for (const line of lines) {
+    line.material.opacity = 0.22 + 0.18 * (0.5 + 0.5 * Math.sin(time * 0.7 + line.userData.a));
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+animate();
+
+</script>
+
+</body>
+</html>
