@@ -2,7 +2,7 @@
 
 An interactive, client-facing walkthrough of an end-to-end outbound operating system—from defining the right market to turning replies into documented sales decisions.
 
-**Live experience:** The production URL will be added here immediately after the first Sites release.
+**Live experience:** [Open the interactive walkthrough](https://rounak-outbound-systems.gurmeetsingh-upwork.chatgpt.site)
 
 This repository is designed to show prospective clients what a thoughtful outbound implementation looks like without requiring them to understand the underlying technical stack. It leads with business outcomes, then lets curious buyers inspect the rules, handoffs, safeguards, and operating detail behind them.
 
