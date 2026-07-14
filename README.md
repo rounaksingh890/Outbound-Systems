@@ -4,6 +4,8 @@ An interactive, client-facing walkthrough of an end-to-end outbound operating sy
 
 **Live experience:** [Open the interactive walkthrough](https://rounak-outbound-systems.gurmeetsingh-upwork.chatgpt.site)
 
+Share the live URL above with clients. It opens the interactive experience directly; this GitHub repository is the source and implementation record.
+
 This repository is designed to show prospective clients what a thoughtful outbound implementation looks like without requiring them to understand the underlying technical stack. It leads with business outcomes, then lets curious buyers inspect the rules, handoffs, safeguards, and operating detail behind them.
 
 > **An honest demo:** The company, people, records, and campaign figures in the experience are synthetic and illustrative. They demonstrate an operating model, not claimed client results or guaranteed performance.

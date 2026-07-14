@@ -114,7 +114,7 @@ test("publishes accessible, share-ready document metadata", async () => {
   assert.match(html, /https:\/\/schema\.org/i);
 });
 
-test("ships only purposeful navigation and real project links", async () => {
+test("keeps the client journey inside the interactive walkthrough", async () => {
   const html = await getHtml();
   const hrefs = [...html.matchAll(/<a\b[^>]*\bhref=["']([^"']*)["']/gi)].map(
     ([, href]) => href,
@@ -133,13 +133,12 @@ test("ships only purposeful navigation and real project links", async () => {
   }
 
   const externalHrefs = hrefs.filter((href) => /^https?:\/\//i.test(href));
-  assert.deepEqual(
-    [...new Set(externalHrefs)].sort(),
-    [
-      "https://github.com/rounaksingh890",
-      "https://github.com/rounaksingh890/Outbound-Systems",
-    ],
+  assert.deepEqual(externalHrefs, []);
+  assert.match(
+    html,
+    /href=["']#system["'][^>]*>Replay the interactive walkthrough/i,
   );
+  assert.doesNotMatch(html, /Open Rounak(?:’|')s GitHub|View this repository/i);
 });
 
 test("contains no starter-preview residue", async () => {

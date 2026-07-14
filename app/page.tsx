@@ -9,7 +9,6 @@ import {
   CircleCheck,
   ClipboardCheck,
   Database,
-  ExternalLink,
   FileCheck2,
   GitBranch,
   Inbox,
@@ -636,14 +635,13 @@ export default function Home() {
         <section className="contact-section" id="contact" aria-labelledby="contact-title">
           <div className="container contact-grid">
             <div>
-              <span className="contact-label"><span /> Built for a real brief</span>
-              <h2 id="contact-title">Inspect the source. Share the route. Make the next build conversation concrete.</h2>
-              <p>This demonstration shows the depth of the operating model. A real engagement would map it to the client’s actual offer, tools, access, risk, and ownership.</p>
+              <span className="contact-label"><span /> Continue the walkthrough</span>
+              <h2 id="contact-title">Run the route again. Share the live system. Keep the client conversation moving.</h2>
+              <p>This page opens directly into the interactive demonstration—without a repository or technical detour. A real engagement would map the same operating model to the client’s offer, tools, access, risk, and ownership.</p>
             </div>
             <div className="contact-actions">
-              <a className="button button-primary" href="https://github.com/rounaksingh890" target="_blank" rel="noreferrer">Open Rounak’s GitHub <ExternalLink aria-hidden="true" /></a>
-              <a className="button button-secondary" href="https://github.com/rounaksingh890/Outbound-Systems" target="_blank" rel="noreferrer">View this repository <ExternalLink aria-hidden="true" /></a>
-              <p><FileCheck2 aria-hidden="true" /> Share this live walkthrough with a founder, sales lead, or technical reviewer.</p>
+              <a className="button button-primary" href="#system">Replay the interactive walkthrough <ArrowRight aria-hidden="true" /></a>
+              <p><FileCheck2 aria-hidden="true" /> Share this live page directly with a founder, sales lead, or technical reviewer.</p>
             </div>
           </div>
         </section>
